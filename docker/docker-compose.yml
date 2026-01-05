@@ -2,12 +2,11 @@
 # JMeter Distributed Testing - Local Development Compose
 # =============================================================================
 # Usage:
-#   docker-compose up -d worker1 worker2          # Start 2 workers
-#   docker-compose run controller -n -t test.jmx  # Run test
-#   docker-compose down                           # Cleanup
+#   docker compose up -d                          # Start workers + controller
+#   docker compose exec controller /entrypoint.sh controller \
+#       -n -t /jmeter/test-plans/sample-http-test.jmx -l /jmeter/results/test.jtl
+#   docker compose down                           # Cleanup
 # =============================================================================
-
-version: '3.8'
 
 x-jmeter-common: &jmeter-common
   build:
@@ -36,11 +35,11 @@ services:
     ports:
       - "50001:50000"  # Expose for external access if needed
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "50000"]
+      test: ["CMD-SHELL", "nc -z localhost 50000 || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 30s
+      retries: 10
+      start_period: 60s
 
   worker2:
     <<: *jmeter-common
@@ -53,11 +52,11 @@ services:
     ports:
       - "50002:50000"
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "50000"]
+      test: ["CMD-SHELL", "nc -z localhost 50000 || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 30s
+      retries: 10
+      start_period: 60s
 
   worker3:
     <<: *jmeter-common
@@ -119,7 +118,11 @@ services:
     volumes:
       - ../test-plans:/jmeter/test-plans:ro
       - ../results:/jmeter/results
-    # No default command - pass via `docker-compose run`
+    # Override entrypoint to keep container running
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["sleep infinity"]
+    stdin_open: true
+    tty: true
 
   # ---------------------------------------------------------------------------
   # InfluxDB for real-time metrics (optional)
