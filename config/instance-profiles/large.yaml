@@ -1,0 +1,38 @@
+# =============================================================================
+# Instance Profile: Large
+# =============================================================================
+# Use for: Peak load tests, stress tests, capacity planning
+# Estimated cost: ~$8.00/hour for entire cluster
+# Max concurrent users: ~50,000+
+# =============================================================================
+
+name: "large"
+description: "Large cluster for peak load and stress testing"
+
+workers:
+  count: 10
+  instance_type: "c5.2xlarge"
+  use_spot: true
+  spot_max_price: "0.20"
+  
+  # Use placement group for low-latency networking between workers
+  use_placement_group: true
+  placement_group_strategy: "cluster"
+
+controller:
+  instance_type: "c5.2xlarge"
+  use_spot: false
+
+jmeter:
+  heap:
+    controller: "-Xms4g -Xmx8g -XX:MaxMetaspaceSize=512m"
+    worker: "-Xms4g -Xmx8g -XX:MaxMetaspaceSize=256m"
+  
+  # Recommended max threads per worker for this instance size
+  max_threads_per_worker: 5000
+  
+  # Additional JMeter properties for high load
+  properties:
+    httpclient.timeout: 60000
+    httpclient4.idletimeout: 60000
+    httpsampler.ignore_failed_embedded_resources: true

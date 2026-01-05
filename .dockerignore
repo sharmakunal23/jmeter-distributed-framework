@@ -1,0 +1,65 @@
+# =============================================================================
+# JMeter Distributed Framework - .dockerignore
+# =============================================================================
+# Exclude files from Docker build context for faster builds
+
+# Git
+.git/
+.gitignore
+
+# Results and logs
+results/
+logs/
+*.log
+*.jtl
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Documentation
+*.md
+!docker/*.md
+docs/
+
+# Terraform
+terraform/
+
+# CI/CD
+.github/
+jenkins/
+Jenkinsfile
+
+# Tests
+tests/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary
+tmp/
+temp/
+*.tmp
+
+# AWS credentials
+*.pem
+.env
+.env.local

@@ -1,0 +1,28 @@
+# =============================================================================
+# Instance Profile: Medium
+# =============================================================================
+# Use for: Regular load tests, performance regression tests
+# Estimated cost: ~$2.50/hour for entire cluster
+# Max concurrent users: ~25,000
+# =============================================================================
+
+name: "medium"
+description: "Medium cluster for standard load testing"
+
+workers:
+  count: 5
+  instance_type: "c5.xlarge"
+  use_spot: true
+  spot_max_price: "0.10"
+
+controller:
+  instance_type: "c5.xlarge"
+  use_spot: false
+
+jmeter:
+  heap:
+    controller: "-Xms2g -Xmx4g"
+    worker: "-Xms2g -Xmx4g"
+  
+  # Recommended max threads per worker for this instance size
+  max_threads_per_worker: 2500

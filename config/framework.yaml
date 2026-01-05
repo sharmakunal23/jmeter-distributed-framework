@@ -1,0 +1,138 @@
+# =============================================================================
+# JMeter Distributed Framework Configuration
+# =============================================================================
+# This file contains default settings for the framework.
+# Override via CLI arguments or environment variables.
+# =============================================================================
+
+framework:
+  name: "jmeter-distributed-framework"
+  version: "1.0.0"
+
+# -----------------------------------------------------------------------------
+# Docker Configuration
+# -----------------------------------------------------------------------------
+docker:
+  image_name: "jmeter-distributed"
+  image_tag: "latest"
+  registry: ""  # Optional: ECR registry URL
+  build_context: ".."
+  dockerfile: "docker/Dockerfile"
+
+# -----------------------------------------------------------------------------
+# AWS Configuration
+# -----------------------------------------------------------------------------
+aws:
+  region: "us-east-1"
+  
+  # EC2 settings
+  ec2:
+    # AMI: Amazon Linux 2023 with Docker pre-installed (update for your region)
+    # You can also use Ubuntu 22.04 AMI
+    ami_id: "ami-0c7217cdde317cfec"  # Ubuntu 22.04 LTS in us-east-1
+    
+    # Controller instance (On-Demand for stability)
+    controller:
+      instance_type: "c5.large"
+      use_spot: false
+      volume_size_gb: 20
+    
+    # Worker instances (Spot for cost savings)
+    worker:
+      instance_type: "c5.large"
+      use_spot: true
+      spot_max_price: "0.10"  # Max price per hour, or "auto" for on-demand price
+      volume_size_gb: 20
+    
+    # SSH key pair name (must exist in AWS)
+    key_pair_name: "jmeter-framework-key"
+    
+    # Security group settings
+    security_group:
+      name: "jmeter-distributed-sg"
+      description: "Security group for JMeter distributed testing"
+      
+  # S3 settings for results storage
+  s3:
+    bucket_name: "jmeter-results-${AWS_ACCOUNT_ID}"
+    results_prefix: "results/"
+    test_plans_prefix: "test-plans/"
+    retention_days: 90
+
+  # IAM role for EC2 instances
+  iam:
+    instance_profile_name: "jmeter-ec2-profile"
+    role_name: "jmeter-ec2-role"
+
+# -----------------------------------------------------------------------------
+# JMeter Configuration
+# -----------------------------------------------------------------------------
+jmeter:
+  version: "5.6.3"
+  
+  # JVM settings
+  heap:
+    controller: "-Xms2g -Xmx4g -XX:MaxMetaspaceSize=512m"
+    worker: "-Xms2g -Xmx4g -XX:MaxMetaspaceSize=256m"
+  
+  # Distributed testing ports
+  ports:
+    rmi_registry: 1099
+    server: 50000
+    local: 50001
+  
+  # Default test parameters
+  defaults:
+    threads: 100
+    ramp_up: 60
+    duration: 300
+    
+  # Plugin management
+  plugins:
+    # Copy these from ext/ folder into JMeter
+    include_ext_folder: true
+    
+    # Download these plugins at build time (optional)
+    download:
+      - "jpgc-casutg"      # Custom Thread Groups
+      - "jpgc-tst"         # Throughput Shaping Timer
+      - "jpgc-graphs-basic" # Basic Graphs
+
+# -----------------------------------------------------------------------------
+# Results Configuration
+# -----------------------------------------------------------------------------
+results:
+  # Local results directory
+  local_dir: "./results"
+  
+  # Result file naming
+  file_pattern: "{test_name}_{timestamp}_{run_id}"
+  
+  # Generate HTML report after test
+  generate_html_report: true
+  
+  # Upload to S3 after test
+  upload_to_s3: true
+  
+  # Keep local results after S3 upload
+  keep_local_after_upload: false
+
+# -----------------------------------------------------------------------------
+# Logging Configuration
+# -----------------------------------------------------------------------------
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "./logs/framework.log"
+  max_size_mb: 100
+  backup_count: 5
+
+# -----------------------------------------------------------------------------
+# Timeouts (in seconds)
+# -----------------------------------------------------------------------------
+timeouts:
+  ec2_instance_ready: 300
+  worker_health_check: 120
+  ssh_connection: 30
+  test_completion: 7200  # 2 hours max
+  teardown: 300

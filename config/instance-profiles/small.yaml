@@ -1,0 +1,28 @@
+# =============================================================================
+# Instance Profile: Small
+# =============================================================================
+# Use for: Development, smoke tests, small-scale tests
+# Estimated cost: ~$0.50/hour for entire cluster
+# Max concurrent users: ~5,000
+# =============================================================================
+
+name: "small"
+description: "Small cluster for development and smoke tests"
+
+workers:
+  count: 2
+  instance_type: "t3.medium"
+  use_spot: true
+  spot_max_price: "0.02"
+
+controller:
+  instance_type: "t3.medium"
+  use_spot: false
+
+jmeter:
+  heap:
+    controller: "-Xms1g -Xmx2g"
+    worker: "-Xms1g -Xmx2g"
+  
+  # Recommended max threads per worker for this instance size
+  max_threads_per_worker: 500

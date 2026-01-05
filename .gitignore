@@ -1,0 +1,92 @@
+# =============================================================================
+# JMeter Distributed Framework - .gitignore
+# =============================================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# JMeter results (local)
+results/*
+!results/.gitkeep
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# AWS credentials (NEVER commit these)
+.env
+.env.local
+*.pem
+config/.env
+config/credentials
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfvars
+terraform/.terraform.lock.hcl
+
+# Docker
+docker/.env
+
+# Test artifacts
+*.jtl
+*.csv
+html-report/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Coverage reports
+.coverage
+htmlcov/
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+
+# Plugin JARs (optional - you might want to track these)
+# Uncomment if you want to version control your plugins
+# ext/*.jar

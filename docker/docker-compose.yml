@@ -1,0 +1,178 @@
+# =============================================================================
+# JMeter Distributed Testing - Local Development Compose
+# =============================================================================
+# Usage:
+#   docker-compose up -d worker1 worker2          # Start 2 workers
+#   docker-compose run controller -n -t test.jmx  # Run test
+#   docker-compose down                           # Cleanup
+# =============================================================================
+
+version: '3.8'
+
+x-jmeter-common: &jmeter-common
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+  networks:
+    - jmeter-net
+  volumes:
+    - ../test-plans:/jmeter/test-plans:ro
+    - ../results:/jmeter/results
+  environment:
+    - HEAP=-Xms512m -Xmx512m -XX:MaxMetaspaceSize=128m
+
+services:
+  # ---------------------------------------------------------------------------
+  # Worker nodes (JMeter servers)
+  # ---------------------------------------------------------------------------
+  worker1:
+    <<: *jmeter-common
+    container_name: jmeter-worker-1
+    hostname: worker1
+    environment:
+      - JMETER_MODE=worker
+      - RMI_HOST=worker1
+      - HEAP=-Xms512m -Xmx512m
+    ports:
+      - "50001:50000"  # Expose for external access if needed
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "50000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  worker2:
+    <<: *jmeter-common
+    container_name: jmeter-worker-2
+    hostname: worker2
+    environment:
+      - JMETER_MODE=worker
+      - RMI_HOST=worker2
+      - HEAP=-Xms512m -Xmx512m
+    ports:
+      - "50002:50000"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "50000"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  worker3:
+    <<: *jmeter-common
+    container_name: jmeter-worker-3
+    hostname: worker3
+    environment:
+      - JMETER_MODE=worker
+      - RMI_HOST=worker3
+      - HEAP=-Xms512m -Xmx512m
+    ports:
+      - "50003:50000"
+    profiles:
+      - scale  # Only start with --profile scale
+
+  worker4:
+    <<: *jmeter-common
+    container_name: jmeter-worker-4
+    hostname: worker4
+    environment:
+      - JMETER_MODE=worker
+      - RMI_HOST=worker4
+      - HEAP=-Xms512m -Xmx512m
+    ports:
+      - "50004:50000"
+    profiles:
+      - scale
+
+  worker5:
+    <<: *jmeter-common
+    container_name: jmeter-worker-5
+    hostname: worker5
+    environment:
+      - JMETER_MODE=worker
+      - RMI_HOST=worker5
+      - HEAP=-Xms512m -Xmx512m
+    ports:
+      - "50005:50000"
+    profiles:
+      - scale
+
+  # ---------------------------------------------------------------------------
+  # Controller node (runs tests)
+  # ---------------------------------------------------------------------------
+  controller:
+    <<: *jmeter-common
+    container_name: jmeter-controller
+    hostname: controller
+    environment:
+      - JMETER_MODE=controller
+      - RMI_HOST=controller
+      # Default to 2 workers; override with REMOTE_HOSTS env var
+      - REMOTE_HOSTS=worker1:50000,worker2:50000
+      - HEAP=-Xms1g -Xmx1g
+    depends_on:
+      worker1:
+        condition: service_healthy
+      worker2:
+        condition: service_healthy
+    volumes:
+      - ../test-plans:/jmeter/test-plans:ro
+      - ../results:/jmeter/results
+    # No default command - pass via `docker-compose run`
+
+  # ---------------------------------------------------------------------------
+  # InfluxDB for real-time metrics (optional)
+  # ---------------------------------------------------------------------------
+  influxdb:
+    image: influxdb:2.7
+    container_name: jmeter-influxdb
+    hostname: influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=adminpassword
+      - DOCKER_INFLUXDB_INIT_ORG=jmeter
+      - DOCKER_INFLUXDB_INIT_BUCKET=jmeter
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=jmeter-token
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+    networks:
+      - jmeter-net
+    profiles:
+      - monitoring
+
+  # ---------------------------------------------------------------------------
+  # Grafana for dashboards (optional)
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: jmeter-grafana
+    hostname: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - jmeter-net
+    depends_on:
+      - influxdb
+    profiles:
+      - monitoring
+
+networks:
+  jmeter-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  influxdb-data:
+  grafana-data:

@@ -1,0 +1,32 @@
+# =============================================================================
+# JMeter Distributed Framework - Python Dependencies
+# =============================================================================
+
+# AWS SDK
+boto3>=1.34.0
+botocore>=1.34.0
+
+# SSH/SCP for remote execution
+paramiko>=3.4.0
+
+# Configuration
+PyYAML>=6.0.1
+
+# Utilities
+python-dateutil>=2.8.2
+
+# CLI enhancements (optional)
+click>=8.1.0
+rich>=13.7.0
+
+# Development/Testing (optional)
+pytest>=7.4.0
+pytest-cov>=4.1.0
+black>=23.0.0
+flake8>=6.1.0
+mypy>=1.7.0
+
+# Type stubs for better IDE support
+boto3-stubs[ec2,s3]>=1.34.0
+types-PyYAML>=6.0.0
+types-paramiko>=3.4.0

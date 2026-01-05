@@ -1,0 +1,276 @@
+// =============================================================================
+// JMeter Distributed Framework - Jenkins Pipeline
+// =============================================================================
+// Parameterized pipeline for running distributed JMeter tests
+// =============================================================================
+
+pipeline {
+    agent any
+    
+    parameters {
+        choice(
+            name: 'EXECUTION_MODE',
+            choices: ['docker', 'aws'],
+            description: 'Where to run the test'
+        )
+        
+        choice(
+            name: 'INSTANCE_PROFILE',
+            choices: ['small', 'medium', 'large'],
+            description: 'Instance profile for AWS mode'
+        )
+        
+        string(
+            name: 'TEST_PLAN',
+            defaultValue: 'test-plans/sample-http-test.jmx',
+            description: 'Path to JMeter test plan (.jmx file)'
+        )
+        
+        string(
+            name: 'WORKER_COUNT',
+            defaultValue: '2',
+            description: 'Number of worker nodes'
+        )
+        
+        string(
+            name: 'JMETER_PROPERTIES',
+            defaultValue: '',
+            description: 'JMeter properties (format: key1=value1,key2=value2)'
+        )
+        
+        booleanParam(
+            name: 'GENERATE_HTML_REPORT',
+            defaultValue: true,
+            description: 'Generate HTML dashboard report'
+        )
+        
+        booleanParam(
+            name: 'UPLOAD_TO_S3',
+            defaultValue: true,
+            description: 'Upload results to S3 (AWS mode only)'
+        )
+        
+        booleanParam(
+            name: 'KEEP_INFRASTRUCTURE',
+            defaultValue: false,
+            description: 'Keep infrastructure after test (AWS mode)'
+        )
+    }
+    
+    environment {
+        AWS_REGION = 'us-east-1'
+        DOCKER_BUILDKIT = '1'
+        // AWS credentials from Jenkins credentials store
+        AWS_CREDENTIALS = credentials('aws-jmeter-credentials')
+    }
+    
+    options {
+        timeout(time: 4, unit: 'HOURS')
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        timestamps()
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                
+                script {
+                    // Generate unique run ID
+                    env.RUN_ID = sh(
+                        script: "date '+%Y%m%d-%H%M%S'-\$(uuidgen | cut -c1-8)",
+                        returnStdout: true
+                    ).trim()
+                    
+                    echo "Run ID: ${env.RUN_ID}"
+                }
+            }
+        }
+        
+        stage('Setup') {
+            steps {
+                sh '''
+                    # Install Python dependencies
+                    python3 -m pip install --user -r requirements.txt
+                    
+                    # Verify test plan exists
+                    if [ ! -f "${TEST_PLAN}" ]; then
+                        echo "ERROR: Test plan not found: ${TEST_PLAN}"
+                        exit 1
+                    fi
+                '''
+            }
+        }
+        
+        stage('Build Docker Image') {
+            when {
+                anyOf {
+                    expression { params.EXECUTION_MODE == 'docker' }
+                    // Always build for AWS if we need to push to ECR
+                    expression { params.EXECUTION_MODE == 'aws' }
+                }
+            }
+            steps {
+                sh '''
+                    make build
+                '''
+            }
+        }
+        
+        stage('Push to ECR') {
+            when {
+                expression { params.EXECUTION_MODE == 'aws' }
+            }
+            steps {
+                script {
+                    // Only push if ECR registry is configured
+                    def registry = sh(
+                        script: "grep 'registry:' config/framework.yaml | awk '{print \$2}' | tr -d '\"'",
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (registry) {
+                        sh """
+                            aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${registry}
+                            docker tag jmeter-distributed:latest ${registry}/jmeter-distributed:latest
+                            docker push ${registry}/jmeter-distributed:latest
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Run Test') {
+            steps {
+                script {
+                    // Build JMeter properties string
+                    def propsArgs = ''
+                    if (params.JMETER_PROPERTIES) {
+                        params.JMETER_PROPERTIES.split(',').each { prop ->
+                            propsArgs += " -J ${prop.trim()}"
+                        }
+                    }
+                    
+                    // Build command
+                    def cmd = """
+                        python3 scripts/orchestrator.py run \
+                            --mode ${params.EXECUTION_MODE} \
+                            --test-plan ${params.TEST_PLAN} \
+                            --workers ${params.WORKER_COUNT} \
+                            --run-id ${env.RUN_ID} \
+                            --results-dir results
+                    """
+                    
+                    if (params.EXECUTION_MODE == 'aws') {
+                        cmd += " --profile ${params.INSTANCE_PROFILE}"
+                        
+                        if (!params.UPLOAD_TO_S3) {
+                            cmd += " --no-s3-upload"
+                        }
+                        
+                        if (params.KEEP_INFRASTRUCTURE) {
+                            cmd += " --keep-infra"
+                        }
+                    }
+                    
+                    if (!params.GENERATE_HTML_REPORT) {
+                        cmd += " --no-html-report"
+                    }
+                    
+                    cmd += propsArgs
+                    
+                    sh cmd
+                }
+            }
+        }
+        
+        stage('Archive Results') {
+            steps {
+                // Archive JTL files
+                archiveArtifacts artifacts: "results/${env.RUN_ID}/**/*.jtl", allowEmptyArchive: true
+                
+                // Archive HTML report
+                archiveArtifacts artifacts: "results/${env.RUN_ID}/**/html-report/**", allowEmptyArchive: true
+                
+                // Publish HTML report
+                publishHTML(target: [
+                    allowMissing: true,
+                    alwaysLinkToLastBuild: true,
+                    keepAll: true,
+                    reportDir: "results/${env.RUN_ID}/html-report",
+                    reportFiles: 'index.html',
+                    reportName: 'JMeter Report'
+                ])
+            }
+        }
+        
+        stage('Performance Analysis') {
+            steps {
+                script {
+                    // Parse results and fail build if thresholds exceeded
+                    def resultsFile = sh(
+                        script: "find results/${env.RUN_ID} -name '*.jtl' -type f | head -1",
+                        returnStdout: true
+                    ).trim()
+                    
+                    if (resultsFile) {
+                        def summary = sh(
+                            script: """
+                                python3 -c "
+import sys
+sys.path.insert(0, 'scripts')
+from results_collector import ResultsCollector
+from config_loader import ConfigLoader
+
+config = ConfigLoader('config/framework.yaml').load()
+collector = ResultsCollector(config)
+summary = collector.generate_summary('${resultsFile}')
+print(f'Error Rate: {summary.get(\"error_rate\", 0)}%')
+print(f'P95 Response Time: {summary.get(\"p95_response_time\", 0)}ms')
+
+# Fail if error rate > 5%
+if summary.get('error_rate', 0) > 5:
+    print('FAIL: Error rate exceeded 5%')
+    sys.exit(1)
+"
+                            """,
+                            returnStatus: true
+                        )
+                        
+                        if (summary != 0) {
+                            currentBuild.result = 'UNSTABLE'
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            // Cleanup
+            sh '''
+                # Tear down Docker containers
+                make workers-down || true
+            '''
+        }
+        
+        failure {
+            // Notify on failure
+            script {
+                if (params.EXECUTION_MODE == 'aws' && !params.KEEP_INFRASTRUCTURE) {
+                    sh '''
+                        # Ensure AWS resources are cleaned up
+                        python3 scripts/orchestrator.py teardown --mode aws --force || true
+                    '''
+                }
+            }
+        }
+        
+        success {
+            echo "Performance test completed successfully!"
+            echo "Results available at: results/${env.RUN_ID}"
+        }
+    }
+}

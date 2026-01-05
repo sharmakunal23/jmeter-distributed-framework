@@ -1,0 +1,254 @@
+# =============================================================================
+# JMeter Distributed Framework - GitHub Actions Workflow
+# =============================================================================
+# Supports both Docker (local) and AWS execution modes
+# =============================================================================
+
+name: Performance Test
+
+on:
+  # Manual trigger with parameters
+  workflow_dispatch:
+    inputs:
+      execution_mode:
+        description: 'Execution mode'
+        required: true
+        default: 'docker'
+        type: choice
+        options:
+          - docker
+          - aws
+      
+      instance_profile:
+        description: 'AWS instance profile'
+        required: false
+        default: 'small'
+        type: choice
+        options:
+          - small
+          - medium
+          - large
+      
+      test_plan:
+        description: 'Path to test plan'
+        required: true
+        default: 'test-plans/sample-http-test.jmx'
+      
+      worker_count:
+        description: 'Number of workers'
+        required: true
+        default: '2'
+      
+      jmeter_properties:
+        description: 'JMeter properties (key1=value1,key2=value2)'
+        required: false
+        default: ''
+  
+  # Trigger on push to specific paths
+  push:
+    paths:
+      - 'test-plans/**'
+      - 'docker/**'
+      - 'scripts/**'
+    branches:
+      - main
+      - develop
+
+env:
+  AWS_REGION: us-east-1
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build and validate
+  # ---------------------------------------------------------------------------
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: Lint Python code
+        run: |
+          pip install flake8
+          flake8 scripts/ --max-line-length=120 --ignore=E501,W503
+      
+      - name: Build Docker image
+        run: make build
+      
+      - name: Validate test plan exists
+        run: |
+          TEST_PLAN="${{ github.event.inputs.test_plan || 'test-plans/sample-http-test.jmx' }}"
+          if [ ! -f "$TEST_PLAN" ]; then
+            echo "::error::Test plan not found: $TEST_PLAN"
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Run performance test
+  # ---------------------------------------------------------------------------
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    
+    # Only run AWS tests from main branch
+    if: |
+      github.event.inputs.execution_mode != 'aws' || 
+      github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: Configure AWS credentials
+        if: github.event.inputs.execution_mode == 'aws'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Generate Run ID
+        id: run-id
+        run: echo "run_id=$(date '+%Y%m%d-%H%M%S')-$(uuidgen | cut -c1-8)" >> $GITHUB_OUTPUT
+      
+      - name: Build Docker image
+        run: make build
+      
+      - name: Run performance test
+        id: test
+        env:
+          RUN_ID: ${{ steps.run-id.outputs.run_id }}
+        run: |
+          MODE="${{ github.event.inputs.execution_mode || 'docker' }}"
+          TEST_PLAN="${{ github.event.inputs.test_plan || 'test-plans/sample-http-test.jmx' }}"
+          WORKERS="${{ github.event.inputs.worker_count || '2' }}"
+          PROFILE="${{ github.event.inputs.instance_profile || 'small' }}"
+          PROPS="${{ github.event.inputs.jmeter_properties }}"
+          
+          # Build command
+          CMD="python scripts/orchestrator.py run --mode $MODE --test-plan $TEST_PLAN --workers $WORKERS --run-id $RUN_ID"
+          
+          if [ "$MODE" = "aws" ]; then
+            CMD="$CMD --profile $PROFILE"
+          fi
+          
+          # Add properties if provided
+          if [ -n "$PROPS" ]; then
+            IFS=',' read -ra PROP_ARRAY <<< "$PROPS"
+            for prop in "${PROP_ARRAY[@]}"; do
+              CMD="$CMD -J $prop"
+            done
+          fi
+          
+          echo "Running: $CMD"
+          $CMD
+      
+      - name: Upload results artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmeter-results-${{ steps.run-id.outputs.run_id }}
+          path: results/
+          retention-days: 30
+      
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmeter-html-report-${{ steps.run-id.outputs.run_id }}
+          path: results/**/html-report/
+          retention-days: 30
+      
+      - name: Analyze results
+        id: analyze
+        run: |
+          RESULTS_FILE=$(find results -name "*.jtl" -type f | head -1)
+          
+          if [ -n "$RESULTS_FILE" ]; then
+            python3 << EOF
+          import sys
+          sys.path.insert(0, 'scripts')
+          from results_collector import ResultsCollector
+          from config_loader import ConfigLoader
+          
+          config = ConfigLoader('config/framework.yaml').load()
+          collector = ResultsCollector(config)
+          
+          summary = collector.generate_summary('$RESULTS_FILE')
+          collector.print_summary('$RESULTS_FILE')
+          
+          # Set outputs for later use
+          import os
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"error_rate={summary.get('error_rate', 0)}\n")
+              f.write(f"p95={summary.get('p95_response_time', 0)}\n")
+              f.write(f"total_samples={summary.get('total_samples', 0)}\n")
+          
+          # Fail if error rate > 5%
+          if summary.get('error_rate', 0) > 5:
+              print("::error::Error rate exceeded 5% threshold")
+              sys.exit(1)
+          EOF
+          else
+            echo "::warning::No results file found"
+          fi
+      
+      - name: Create summary
+        run: |
+          echo "## Performance Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Run ID | ${{ steps.run-id.outputs.run_id }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Total Samples | ${{ steps.analyze.outputs.total_samples }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Error Rate | ${{ steps.analyze.outputs.error_rate }}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| P95 Response Time | ${{ steps.analyze.outputs.p95 }}ms |" >> $GITHUB_STEP_SUMMARY
+
+  # ---------------------------------------------------------------------------
+  # Cleanup (for AWS mode)
+  # ---------------------------------------------------------------------------
+  cleanup:
+    needs: test
+    runs-on: ubuntu-latest
+    if: always() && github.event.inputs.execution_mode == 'aws'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Cleanup AWS resources
+        run: |
+          python scripts/orchestrator.py teardown --mode aws --force || true
