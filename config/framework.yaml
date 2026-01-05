@@ -33,15 +33,15 @@ aws:
     
     # Controller instance (On-Demand for stability)
     controller:
-      instance_type: "c5.large"
+      instance_type: "m5.large"
       use_spot: false
       volume_size_gb: 20
     
     # Worker instances (Spot for cost savings)
     worker:
-      instance_type: "c5.large"
-      use_spot: true
-      spot_max_price: "0.10"  # Max price per hour, or "auto" for on-demand price
+      instance_type: "m5.large"
+      use_spot: false # set true if spot instance is necessary to save cost. Current price/hour: $0.096
+      # spot_max_price: "0.08"  # Max price per hour, or "auto" for on-demand price
       volume_size_gb: 20
     
     # SSH key pair name (must exist in AWS)
@@ -72,8 +72,8 @@ jmeter:
   
   # JVM settings
   heap:
-    controller: "-Xms2g -Xmx4g -XX:MaxMetaspaceSize=512m"
-    worker: "-Xms2g -Xmx4g -XX:MaxMetaspaceSize=256m"
+    controller: "-Xms4g -Xmx4g -XX:MaxMetaspaceSize=512m"
+    worker: "-Xms2g -Xmx2g -XX:MaxMetaspaceSize=256m"
   
   # Distributed testing ports
   ports:

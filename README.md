@@ -62,7 +62,7 @@ python scripts/orchestrator.py run \
     --mode aws \
     --test-plan test-plans/your-test.jmx \
     --profile large \
-    -J threads=500 \
+    -J threads=10 \
     -J rampup=120 \
     -J duration=600
 ```
@@ -104,10 +104,10 @@ aws:
     ami_id: "ami-0c7217cdde317cfec"  # Ubuntu 22.04
     key_pair_name: "jmeter-framework-key"
     controller:
-      instance_type: "c5.xlarge"
+      instance_type: "m5.large" # (2vCPU, 8GiB mem)
       use_spot: false
     worker:
-      instance_type: "c5.xlarge"
+      instance_type: "m5.large"
       use_spot: true
   s3:
     bucket_name: "your-bucket-name"
@@ -170,7 +170,7 @@ Pass JMeter properties using `-J`:
 python scripts/orchestrator.py run \
     --mode docker \
     --test-plan test.jmx \
-    -J threads=100 \
+    -J threads=10 \
     -J rampup=60 \
     -J duration=300 \
     -J target_host=api.example.com
@@ -343,9 +343,9 @@ jmeter:
 | Concurrent Users | Recommended Profile | Instance Type |
 |-----------------|---------------------|---------------|
 | < 5,000         | small               | t3.medium     |
-| 5,000 - 25,000  | medium              | c5.xlarge     |
-| 25,000 - 50,000 | large               | c5.2xlarge    |
-| > 50,000        | Custom              | c5.4xlarge+   |
+| 5,000 - 25,000  | medium              | m5.large      |
+| 25,000 - 50,000 | large               | m5.xlarge     |
+| > 50,000        | Custom              | m5.2xlarge    |
 
 ### Network Optimization
 
