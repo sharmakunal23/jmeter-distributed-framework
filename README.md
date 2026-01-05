@@ -122,10 +122,10 @@ jmeter:
 ### Instance Profiles
 
 | Profile | Workers | Instance Type | Max Users | Est. Cost/Hour |
-|---------|---------|---------------|-----------|----------------|
-| small   | 2       | t3.medium     | ~5,000    | ~$0.50         |
-| medium  | 5       | c5.xlarge     | ~25,000   | ~$2.50         |
-| large   | 10      | c5.2xlarge    | ~50,000   | ~$8.00         |
+|---------|---------|--------------|-----------|----------------|
+| small   | 2       | t3.medium    | ~5,000    | ~$0.50         |
+| medium  | 5       | m5.large     | ~25,000   | ~$0.96         |
+| large   | 10      | m5.xlarge    | ~50,000   | ~$0.192         |
 
 ## CLI Reference
 
